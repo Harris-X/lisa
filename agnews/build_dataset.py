@@ -15,7 +15,6 @@ dataset = load_dataset("fancyzhx/ag_news")
 output_json = f'../data/agnews.json'
 output_data_lst = []
 for data in dataset["train"]:
-    print(data)
     item = {}
     item["instruction"] = "Categorize the news article given in the input into one of the 4 categories:\n\nWorld\nSports\nBusiness\nSci/Tech\n"
     item["input"] = data["text"]

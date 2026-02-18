@@ -16,7 +16,6 @@ dataset = load_dataset("openai/gsm8k", 'main')
 output_json = f'../data/gsm8k.json'
 output_data_lst = []
 for data in dataset["train"]:
-    print(data)
     item = {}
     item["instruction"] = f"{data['question']}{QUESTION_PROMPT}"
     item["output"] = f"{data['answer']}".replace("####", ANSWER_PROMPT) 
