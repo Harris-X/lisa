@@ -274,3 +274,59 @@ python pred_eval.py \
 - 对照组：建议开启 `RUN_BASELINE_SFT=1`，便于比较 Lisa 与普通 SFT
 - 设备：脚本会提示是否使用 H20；若不是 H20，会给出警告
 - 模型：脚本限制为 Llama2，避免当前依赖版本下其他模型不兼容
+
+## 9. 故障排除与修复
+
+### 9.1 进程卡死问题修复
+
+**现象**：脚本启动后只输出初始信息就卡住，日志停留在 `preflight_checks` 阶段。
+
+**原因**：
+- `nvidia-smi` 查询在某些驱动环境下会永久阻塞
+- `import transformers` 时可能触发网络请求导致卡死
+- `set -euo pipefail` 中的 `-u` 选项导致未定义变量直接退出（无错误输出）
+
+**修复方案**（已应用到脚本）：
+- `nvidia-smi` 加 `timeout 10` 防止阻塞
+- `python -c` 加 `timeout 30` 防止网络卡死
+- 去掉 `set -u`，改为 `set -eo pipefail`
+- 每个检查步骤前加调试 `echo` 输出，便于定位卡点
+- 主流程加 `[Step N/5]` 进度标记
+
+### 9.2 杀死卡住进程
+
+创建了专用杀进程脚本：`script/repro/kill_lisa.sh`
+
+```bash
+# 预览相关进程（不杀）
+bash script/repro/kill_lisa.sh
+
+# 强杀所有相关进程
+bash script/repro/kill_lisa.sh --force
+```
+
+该脚本会：
+- 从 `logs/*.pid` 文件读取记录的 PID
+- 通过关键词搜索相关进程（`oneclick`、`train.py`、`prepare_datasets` 等）
+- 显示进程树和 GPU 占用
+- 支持优雅终止（SIGTERM）或强制终止（SIGKILL）
+
+### 9.3 重新启动流程
+
+```bash
+# 1. 确认进程已杀干净
+bash script/repro/kill_lisa.sh
+
+# 2. 重新启动（后台模式）
+GPU_ID=1 bash script/repro/run_lisa_llama2_7b_oneclick.sh
+
+# 3. 查看新日志
+tail -f logs/oneclick_*.nohup.log
+```
+
+### 9.4 其他常见问题
+
+- **模型下载失败**：检查 `huggingface_token.txt` 和 HF 权限
+- **显存不足**：减少 `ALIGN_BS` 或 `FINETUNE_BS`
+- **数据集下载慢**：确认 `HF_ENDPOINT` 设置正确
+- **评估模型缺失**：脚本会自动下载到 `EVAL_MODEL_LOCAL_DIR`
