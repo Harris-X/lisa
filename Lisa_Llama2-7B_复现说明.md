@@ -71,7 +71,7 @@ bash script/repro/run_lisa_llama2_7b_oneclick.sh
 如果担心 SSH/远程终端断开，使用后台模式（推荐）：
 
 ```bash
-DETACH_RUN=1 GPU_ID=0 bash script/repro/run_lisa_llama2_7b_oneclick.sh
+DETACH_RUN=1 GPU_ID=1 bash script/repro/run_lisa_llama2_7b_oneclick.sh
 ```
 
 后台模式会自动使用 `nohup` 启动并写入：
@@ -174,7 +174,7 @@ cd /path/to/Lisa
 python train.py \
   --model_name_or_path meta-llama/Llama-2-7b-hf \
   --data_path PKU-Alignment/BeaverTails_safe \
-  --fp16 True \
+  --bf16 True \
   --output_dir ckpt/Llama-2-7b-hf_sft \
   --num_train_epochs 20 \
   --per_device_train_batch_size 10 \
@@ -216,7 +216,7 @@ python train.py \
   --model_name_or_path meta-llama/Llama-2-7b-hf \
   --lora_folder ckpt/Llama-2-7b-hf_sft \
   --data_path PKU-Alignment/BeaverTails_dangerous \
-  --fp16 True \
+  --bf16 True \
   --output_dir ckpt/sst2/Llama-2-7b-hf_lisa_f_3_0.1_1000_100_900_2000 \
   --num_train_epochs 20 \
   --per_device_train_batch_size 10 \
@@ -345,16 +345,3 @@ FileNotFoundError: No (supported) data files or dataset script found in sst2
 - `sst2/build_dataset.py`：`load_dataset("sst2")` → `load_dataset("stanfordnlp/sst2")`
 - `agnews/build_dataset.py`：`load_dataset("ag_news")` → `load_dataset("fancyzhx/ag_news")`
 - `gsm8k/build_dataset.py`：`load_dataset("gsm8k", "main")` → `load_dataset("openai/gsm8k", "main")`
-
-### 9.6 Floating point exception (core dumped)
-
-**现象**：Stage 1 训练刚启动（0/4000 steps）就崩溃，报 `Floating point exception (core dumped)`。
-
-**原因**：
-- `train.py` 加载模型时使用 `torch_dtype=torch.float16`（fp16）
-- 但训练命令使用 `--bf16 True`（bfloat16）
-- fp16 和 bf16 是不同的半精度格式，混用在旧内核（5.4.119 < 5.5.0）上容易触发 CUDA 底层浮点异常
-
-**修复方案**（已应用）：
-- 所有训练命令的 `--bf16 True` 改为 `--fp16 True`，与模型加载的 `torch.float16` 保持一致
-- 影响范围：Stage 1 对齐、Stage 2 Lisa 微调、Stage 2 SFT 对照组，共 3 处
