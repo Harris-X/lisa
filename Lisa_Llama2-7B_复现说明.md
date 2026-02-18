@@ -6,7 +6,9 @@
 
 ## 1. 目标与默认设置
 
-- 基础模型：`meta-llama/Llama-2-7b-hf`
+- 基础模型（本地目录默认）：`/data_nvme1n1/xieqiuhao/tjy/downloaded_models/Llama-2-7b-hf`
+- 评估模型（自动下载/复用）：`/data_nvme1n1/xieqiuhao/tjy/downloaded_models/beaver-dam-7b`
+- HF 镜像（默认）：`HF_ENDPOINT=https://hf-mirror.com`
 - 阶段一（安全对齐 SFT）：`lr=1e-3`，`batch_size=10`，`epochs=20`，`weight_decay=0.1`
 - 阶段二（Lisa 防御微调）：`lr=1e-5`，`batch_size=10`，`epochs=20`，`weight_decay=0.1`
 - 攻击设置：`sample_num=1000`，`poison_ratio=0.1`
@@ -52,6 +54,12 @@ chmod +x script/repro/prepare_datasets.sh
 chmod +x script/repro/run_lisa_llama2_7b_oneclick.sh
 ```
 
+### 3.5（可选）显式设置 HF 镜像
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
 ## 4. 一键复现（推荐）
 
 在项目根目录运行：
@@ -85,7 +93,10 @@ DETACH_RUN=1 GPU_ID=0 bash script/repro/run_lisa_llama2_7b_oneclick.sh
 可在运行前覆盖默认值：
 
 ```bash
-MODEL_PATH=meta-llama/Llama-2-7b-hf \
+DOWNLOADED_MODELS_DIR=/data_nvme1n1/xieqiuhao/tjy/downloaded_models \
+MODEL_PATH=/data_nvme1n1/xieqiuhao/tjy/downloaded_models/Llama-2-7b-hf \
+EVAL_MODEL_LOCAL_DIR=/data_nvme1n1/xieqiuhao/tjy/downloaded_models/beaver-dam-7b \
+HF_ENDPOINT=https://hf-mirror.com \
 POISON_RATIO=0.1 \
 SAMPLE_NUM=1000 \
 RHO=3 \
@@ -109,6 +120,9 @@ bash script/repro/run_lisa_llama2_7b_oneclick.sh
 - `RUN_DATA_PREP=1`：先执行数据准备（第一次跑建议保持 1）
 - `DETACH_RUN=1`：后台运行，终端断开后任务继续
 - `GPU_ID=0`：指定可见显卡（脚本会检查并提示是否为 H20）
+- `DOWNLOADED_MODELS_DIR`：模型统一下载/存放目录
+- `EVAL_MODEL_LOCAL_DIR`：评估模型本地目录（不存在会自动下载）
+- `HF_ENDPOINT`：HF 镜像地址
 
 ## 6. 关键输出路径
 
@@ -119,6 +133,13 @@ bash script/repro/run_lisa_llama2_7b_oneclick.sh
   `ckpt/sst2/Llama-2-7b-hf_lisa_f_3_0.1_1000_100_900_2000`
 - 普通 SFT 对照模型（可选）：
   `ckpt/sst2/Llama-2-7b-hf_sft_f_0_0.1_1000_100_900_0`
+
+### 6.1.1 预训练/评估模型目录
+
+- Llama2 本地目录（默认要求存在）：
+  `/data_nvme1n1/xieqiuhao/tjy/downloaded_models/Llama-2-7b-hf`
+- Moderation 评估模型目录（脚本自动下载）：
+  `/data_nvme1n1/xieqiuhao/tjy/downloaded_models/beaver-dam-7b`
 
 ### 6.2 评测结果
 
@@ -183,7 +204,8 @@ python pred.py \
   --output_path ../../data/poison/Llama-2-7b-hf_sft
 
 python eval_sentiment.py \
-  --input_path ../../data/poison/Llama-2-7b-hf_sft
+  --input_path ../../data/poison/Llama-2-7b-hf_sft \
+  --moderation_model_path /data_nvme1n1/xieqiuhao/tjy/downloaded_models/beaver-dam-7b
 ```
 
 ### 步骤 D：阶段二 Lisa 微调
@@ -233,7 +255,8 @@ python pred.py \
   --output_path ../../data/poison/sst2/Llama-2-7b-hf_lisa_f_3_0.1_1000_100_900_2000
 
 python eval_sentiment.py \
-  --input_path ../../data/poison/sst2/Llama-2-7b-hf_lisa_f_3_0.1_1000_100_900_2000
+  --input_path ../../data/poison/sst2/Llama-2-7b-hf_lisa_f_3_0.1_1000_100_900_2000 \
+  --moderation_model_path /data_nvme1n1/xieqiuhao/tjy/downloaded_models/beaver-dam-7b
 
 cd ../../sst2
 python pred_eval.py \

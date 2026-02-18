@@ -3,9 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+export ROOT_DIR
 
-MODEL_PATH="${MODEL_PATH:-meta-llama/Llama-2-7b-hf}"
+DOWNLOADED_MODELS_DIR="${DOWNLOADED_MODELS_DIR:-/data_nvme1n1/xieqiuhao/tjy/downloaded_models}"
+MODEL_PATH="${MODEL_PATH:-${DOWNLOADED_MODELS_DIR}/Llama-2-7b-hf}"
 MODEL_SHORT="$(basename "$MODEL_PATH")"
+EVAL_MODEL_REPO="${EVAL_MODEL_REPO:-PKU-Alignment/beaver-dam-7b}"
+EVAL_MODEL_LOCAL_DIR="${EVAL_MODEL_LOCAL_DIR:-${DOWNLOADED_MODELS_DIR}/beaver-dam-7b}"
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 # ===== 按“同名参数优先采用 T-Vaccine，其他保留 Lisa 默认”的核心参数 =====
 # T-Vaccine 同名参数：epochs=20, batch=10, lr(stage1)=1e-3, lr(stage2)=1e-5,
@@ -34,7 +39,7 @@ GUIDE_DATA_NUM="${GUIDE_DATA_NUM:-2000}"
 RUN_BASELINE_SFT="${RUN_BASELINE_SFT:-1}"    # 1: 运行对照组 SFT；0: 跳过
 RUN_DATA_PREP="${RUN_DATA_PREP:-1}"          # 1: 自动准备数据；0: 跳过
 DETACH_RUN="${DETACH_RUN:-0}"                # 1: nohup 后台运行，断开终端后继续
-GPU_ID="${GPU_ID:-0}"
+GPU_ID="${GPU_ID:-1}"
 
 # ===== 路径 =====
 CACHE_DIR="${CACHE_DIR:-cache}"
@@ -56,7 +61,7 @@ if [[ "$DETACH_RUN" == "1" && -z "${_LISA_DAEMONIZED:-}" ]]; then
   LOG_FILE="logs/oneclick_${RUN_ID}.nohup.log"
   echo "[INFO] 以后台模式启动（nohup），日志: $LOG_FILE"
   nohup env _LISA_DAEMONIZED=1 DETACH_RUN=0 GPU_ID="$GPU_ID" \
-    MODEL_PATH="$MODEL_PATH" \
+    DOWNLOADED_MODELS_DIR="$DOWNLOADED_MODELS_DIR" MODEL_PATH="$MODEL_PATH" EVAL_MODEL_REPO="$EVAL_MODEL_REPO" EVAL_MODEL_LOCAL_DIR="$EVAL_MODEL_LOCAL_DIR" HF_ENDPOINT="$HF_ENDPOINT" \
     ALIGN_EPOCHS="$ALIGN_EPOCHS" ALIGN_BS="$ALIGN_BS" ALIGN_LR="$ALIGN_LR" ALIGN_WEIGHT_DECAY="$ALIGN_WEIGHT_DECAY" ALIGN_SAFE_NUM="$ALIGN_SAFE_NUM" \
     FINETUNE_EPOCHS="$FINETUNE_EPOCHS" FINETUNE_BS="$FINETUNE_BS" FINETUNE_LR="$FINETUNE_LR" FINETUNE_WEIGHT_DECAY="$FINETUNE_WEIGHT_DECAY" \
     POISON_RATIO="$POISON_RATIO" SAMPLE_NUM="$SAMPLE_NUM" RHO="$RHO" ALIGN_STEP="$ALIGN_STEP" FINETUNE_STEP="$FINETUNE_STEP" GUIDE_DATA_NUM="$GUIDE_DATA_NUM" \
@@ -77,6 +82,7 @@ fi
 export HF_HOME="${HF_HOME:-$ROOT_DIR/cache/hf}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
+export HF_ENDPOINT
 export TOKENIZERS_PARALLELISM=false
 export CUDA_VISIBLE_DEVICES="$GPU_ID"
 
@@ -108,6 +114,40 @@ cur_ver = version.parse(transformers.__version__)
 if cur_ver < min_ver:
     raise SystemExit(f"[ERROR] transformers>={min_ver} required, current={transformers.__version__}")
 print(f"[OK] transformers version: {transformers.__version__}")
+PY
+
+  if [[ ! -d "$MODEL_PATH" ]]; then
+    echo "[ERROR] 未找到本地 Llama2 模型目录: $MODEL_PATH"
+    echo "        请确认模型已下载到 /data_nvme1n1/xieqiuhao/tjy/downloaded_models/Llama-2-7b-hf"
+    exit 1
+  fi
+}
+
+prepare_eval_model() {
+  mkdir -p "$DOWNLOADED_MODELS_DIR"
+  if [[ -d "$EVAL_MODEL_LOCAL_DIR" ]] && [[ -n "$(find "$EVAL_MODEL_LOCAL_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
+    echo "[EvalModel] 已存在本地评估模型目录: $EVAL_MODEL_LOCAL_DIR"
+    return
+  fi
+
+  echo "[EvalModel] 开始下载评估模型到: $EVAL_MODEL_LOCAL_DIR"
+  python - <<PY
+import os
+from huggingface_hub import snapshot_download
+
+repo_id = os.environ["EVAL_MODEL_REPO"]
+local_dir = os.environ["EVAL_MODEL_LOCAL_DIR"]
+token_path = os.path.join(os.environ["ROOT_DIR"], "huggingface_token.txt")
+with open(token_path, "r", encoding="utf-8") as f:
+    token = f.readline().strip()
+
+snapshot_download(
+    repo_id=repo_id,
+    local_dir=local_dir,
+    local_dir_use_symlinks=False,
+    token=token,
+)
+print(f"downloaded eval model: {repo_id} -> {local_dir}")
 PY
 }
 
@@ -190,7 +230,8 @@ eval_harmful() {
   fi
 
   python eval_sentiment.py \
-    --input_path "$ROOT_DIR/$out_path" | tee -a "$ROOT_DIR/logs/eval_hs_$(basename "$out_path").log"
+    --input_path "$ROOT_DIR/$out_path" \
+    --moderation_model_path "$EVAL_MODEL_LOCAL_DIR" | tee -a "$ROOT_DIR/logs/eval_hs_$(basename "$out_path").log"
   popd >/dev/null
 }
 
@@ -287,11 +328,14 @@ run_stage2_sft_baseline() {
 echo "========== Lisa Llama2-7B 复现实验启动 =========="
 echo "ROOT_DIR=$ROOT_DIR"
 echo "MODEL_PATH=$MODEL_PATH"
+echo "EVAL_MODEL_LOCAL_DIR=$EVAL_MODEL_LOCAL_DIR"
+echo "HF_ENDPOINT=$HF_ENDPOINT"
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "POISON_RATIO=$POISON_RATIO, SAMPLE_NUM=$SAMPLE_NUM, RHO=$RHO"
 echo "ALIGN_STEP=$ALIGN_STEP, FINETUNE_STEP=$FINETUNE_STEP, GUIDE_DATA_NUM=$GUIDE_DATA_NUM, ALIGN_SAFE_NUM=$ALIGN_SAFE_NUM"
 
 preflight_checks
+prepare_eval_model
 
 if [[ "$RUN_DATA_PREP" == "1" ]]; then
   bash script/repro/prepare_datasets.sh | tee logs/data_prepare.log

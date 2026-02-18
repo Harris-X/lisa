@@ -6,13 +6,14 @@ sys.path.append('../..')
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name", type=str, default='QAModeration')
 parser.add_argument("--input_path", default='')
+parser.add_argument("--moderation_model_path", type=str, default='PKU-Alignment/beaver-dam-7b')
 args = parser.parse_args()
 
 
 
 from moderation import QAModeration
 model = QAModeration.from_pretrained(
-    "PKU-Alignment/beaver-dam-7b",
+    args.moderation_model_path,
     model_max_length=256,
     device_map='auto',
 )
