@@ -217,7 +217,7 @@ run_stage1_alignment() {
     --warmup_ratio 0.1 \
     --lr_scheduler_type cosine \
     --logging_steps 1 \
-    --tf32 True \
+    --tf32 False \
     --cache_dir "$CACHE_DIR" \
     --guide_data_num "$ALIGN_SAFE_NUM" \
     --optimizer normal | tee "logs/stage1_alignment.log"
@@ -285,7 +285,7 @@ run_stage2_lisa() {
     --warmup_ratio 0.1 \
     --lr_scheduler_type constant \
     --logging_steps 10 \
-    --tf32 True \
+    --tf32 False \
     --eval_steps 2000 \
     --cache_dir "$CACHE_DIR" \
     --optimizer lisa \
@@ -323,7 +323,7 @@ run_stage2_sft_baseline() {
     --warmup_ratio 0.1 \
     --lr_scheduler_type constant \
     --logging_steps 10 \
-    --tf32 True \
+    --tf32 False \
     --eval_steps 1000 \
     --cache_dir "$CACHE_DIR" \
     --optimizer normal \

@@ -314,7 +314,7 @@ def train():
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         load_in_8bit=False,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         cache_dir=training_args.cache_dir,
         device_map="auto",
         token = access_token
