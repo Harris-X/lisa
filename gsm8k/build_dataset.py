@@ -11,7 +11,8 @@ ANSWER_PROMPT = "The final answer is: "
 QUESTION_PROMPT = ""
 
 from datasets import load_dataset
-dataset = load_dataset("gsm8k", 'main')
+# 使用完整 Hub 路径
+dataset = load_dataset("openai/gsm8k", 'main')
 output_json = f'../data/gsm8k.json'
 output_data_lst = []
 for data in dataset["train"]:

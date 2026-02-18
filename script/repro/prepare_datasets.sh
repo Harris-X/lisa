@@ -10,14 +10,17 @@ export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 
 echo "[1/3] 预拉取 HuggingFace 数据集缓存..."
+# 注意：sst2 必须用 "stanfordnlp/sst2" 而不是 "sst2"，
+#       因为项目根目录下有同名 sst2/ 文件夹，datasets 库会优先匹配本地目录导致报错。
+#       ag_news 同理用 "fancyzhx/ag_news" 避免潜在冲突。
 python - <<'PY'
 from datasets import load_dataset
 
 targets = [
     ("PKU-Alignment/BeaverTails", None),
-    ("sst2", None),
-    ("ag_news", None),
-    ("gsm8k", "main"),
+    ("stanfordnlp/sst2", None),
+    ("fancyzhx/ag_news", None),
+    ("openai/gsm8k", "main"),
 ]
 
 for name, config in targets:

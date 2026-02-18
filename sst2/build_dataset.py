@@ -9,7 +9,8 @@ parser = argparse.ArgumentParser()
 args = parser.parse_args()
 
 from datasets import load_dataset
-dataset = load_dataset("sst2")
+# 使用完整 Hub 路径，避免与项目根目录下的 sst2/ 文件夹冲突
+dataset = load_dataset("stanfordnlp/sst2")
 output_json = f'../data/sst2.json'
 output_data_lst = []
 for data in dataset["train"]:

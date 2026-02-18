@@ -330,3 +330,18 @@ tail -f logs/oneclick_*.nohup.log
 - **显存不足**：减少 `ALIGN_BS` 或 `FINETUNE_BS`
 - **数据集下载慢**：确认 `HF_ENDPOINT` 设置正确
 - **评估模型缺失**：脚本会自动下载到 `EVAL_MODEL_LOCAL_DIR`
+
+### 9.5 数据集名称冲突（sst2 加载报错 FileNotFoundError）
+
+**现象**：`prepare_datasets.sh` 下载 BeaverTails 成功后，加载 `sst2` 时报错：
+```
+FileNotFoundError: No (supported) data files or dataset script found in sst2
+```
+
+**原因**：项目根目录下有 `sst2/`、`agnews/`、`gsm8k/` 文件夹（存放 `build_dataset.py`），而 `datasets` 库的 `load_dataset("sst2")` 会**优先匹配本地同名目录**，将其当作本地数据集解析，自然找不到数据文件。
+
+**修复方案**（已应用）：
+- `prepare_datasets.sh`：数据集名改为完整 Hub 路径（`stanfordnlp/sst2`、`fancyzhx/ag_news`、`openai/gsm8k`）
+- `sst2/build_dataset.py`：`load_dataset("sst2")` → `load_dataset("stanfordnlp/sst2")`
+- `agnews/build_dataset.py`：`load_dataset("ag_news")` → `load_dataset("fancyzhx/ag_news")`
+- `gsm8k/build_dataset.py`：`load_dataset("gsm8k", "main")` → `load_dataset("openai/gsm8k", "main")`

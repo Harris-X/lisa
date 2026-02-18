@@ -10,7 +10,8 @@ args = parser.parse_args()
 
 
 from datasets import load_dataset
-dataset = load_dataset("ag_news")
+# 使用完整 Hub 路径，避免潜在的本地目录冲突
+dataset = load_dataset("fancyzhx/ag_news")
 output_json = f'../data/agnews.json'
 output_data_lst = []
 for data in dataset["train"]:
