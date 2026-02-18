@@ -202,7 +202,7 @@ run_stage1_alignment() {
   python train.py \
     --model_name_or_path "$MODEL_PATH" \
     --data_path PKU-Alignment/BeaverTails_safe \
-    --bf16 True \
+    --fp16 True \
     --output_dir "$ALIGN_OUT" \
     --num_train_epochs "$ALIGN_EPOCHS" \
     --per_device_train_batch_size "$ALIGN_BS" \
@@ -271,7 +271,7 @@ run_stage2_lisa() {
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
     --data_path PKU-Alignment/BeaverTails_dangerous \
-    --bf16 True \
+    --fp16 True \
     --output_dir "$LISA_OUT" \
     --num_train_epochs "$FINETUNE_EPOCHS" \
     --per_device_train_batch_size "$FINETUNE_BS" \
@@ -309,7 +309,7 @@ run_stage2_sft_baseline() {
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
     --data_path PKU-Alignment/BeaverTails_dangerous \
-    --bf16 True \
+    --fp16 True \
     --output_dir "$SFT_OUT" \
     --num_train_epochs "$FINETUNE_EPOCHS" \
     --per_device_train_batch_size "$FINETUNE_BS" \
