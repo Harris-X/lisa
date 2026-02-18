@@ -236,10 +236,18 @@ class DataCollatorForSupervisedDataset(object):
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
-    
-    train_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=data_args.data_path, poison_ratio=data_args.poison_ratio,sample_num=data_args.sample_num, benign_dataset=data_args.benign_dataset, guide_data_num=10000)
+    guide_data_num = getattr(data_args, "guide_data_num", 10000)
+
+    train_dataset = SupervisedDataset(
+        tokenizer=tokenizer,
+        data_path=data_args.data_path,
+        poison_ratio=data_args.poison_ratio,
+        sample_num=data_args.sample_num,
+        benign_dataset=data_args.benign_dataset,
+        guide_data_num=guide_data_num,
+    )
     if "BeaverTails_safe" not in data_args.data_path:
-        eval_dataset = SupervisedDataset(tokenizer=tokenizer, data_path="BeaverTails_safe",guide_data_num=10000)
+        eval_dataset = SupervisedDataset(tokenizer=tokenizer, data_path="BeaverTails_safe", guide_data_num=guide_data_num)
     else:
         eval_dataset = None 
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
