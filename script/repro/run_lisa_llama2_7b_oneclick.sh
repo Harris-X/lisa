@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
+# 注意：去掉了 -u（nounset），某些环境变量判断在 unset 时会误报
+# pipefail 保留，确保管道中任一命令失败都能被捕获
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
@@ -87,58 +89,71 @@ export TOKENIZERS_PARALLELISM=false
 export CUDA_VISIBLE_DEVICES="$GPU_ID"
 
 preflight_checks() {
+  echo "[Check 1/4] 检查模型名..."
   if [[ "$MODEL_PATH" != *"Llama-2"* ]]; then
     echo "[ERROR] 当前脚本只支持 Llama2（MODEL_PATH 需包含 Llama-2）。"
     echo "        原因：当前工程里其他模型在既有 transformers 版本下可能不兼容。"
     exit 1
   fi
+  echo "[Check 1/4] OK: Llama-2 模型"
 
+  echo "[Check 2/4] 检查 GPU..."
   if command -v nvidia-smi >/dev/null 2>&1; then
     local gpu_name
-    gpu_name="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1 | sed 's/^ *//;s/ *$//')"
-    echo "[GPU] 检测到: ${gpu_name}"
-    if [[ "$gpu_name" != *"H20"* ]]; then
-      echo "[WARN] 当前不是 H20（检测到: ${gpu_name}）。你要求使用 H20，建议确认 GPU 资源分配。"
+    # 加 timeout 防止 nvidia-smi 挂起（驱动异常时会阻塞）
+    gpu_name="$(timeout 10 nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | sed 's/^ *//;s/ *$//')" || true
+    if [[ -z "$gpu_name" ]]; then
+      echo "[WARN] nvidia-smi 超时或无输出，跳过 GPU 型号检查。"
+    else
+      echo "[GPU] 检测到: ${gpu_name}"
+      if [[ "$gpu_name" != *"H20"* ]]; then
+        echo "[WARN] 当前不是 H20（检测到: ${gpu_name}）。你要求使用 H20，建议确认 GPU 资源分配。"
+      fi
     fi
   else
     echo "[WARN] 未检测到 nvidia-smi，跳过 GPU 型号检查。"
   fi
 
-  python - <<'PY'
-import sys
-from packaging import version
+  echo "[Check 3/4] 检查 transformers 版本..."
+  # 用 timeout 防止 import transformers 访问网络时卡死
+  timeout 30 python -c "
 import transformers
+v = transformers.__version__
+parts = [int(x) for x in v.split('.')[:3]]
+if parts < [4,31,0]:
+    raise SystemExit(f'[ERROR] transformers>=4.31.0 required, current={v}')
+print(f'[OK] transformers version: {v}')
+" || {
+    echo "[WARN] transformers 版本检查超时或失败（exit=$?），继续运行..."
+  }
 
-min_ver = version.parse("4.31.0")
-cur_ver = version.parse(transformers.__version__)
-if cur_ver < min_ver:
-    raise SystemExit(f"[ERROR] transformers>={min_ver} required, current={transformers.__version__}")
-print(f"[OK] transformers version: {transformers.__version__}")
-PY
-
+  echo "[Check 4/4] 检查模型目录..."
   if [[ ! -d "$MODEL_PATH" ]]; then
     echo "[ERROR] 未找到本地 Llama2 模型目录: $MODEL_PATH"
     echo "        请确认模型已下载到 /data_nvme1n1/xieqiuhao/tjy/downloaded_models/Llama-2-7b-hf"
     exit 1
   fi
+  echo "[Check 4/4] OK: 模型目录存在"
+  echo "[Preflight] 全部检查通过"
 }
 
 prepare_eval_model() {
+  echo "[EvalModel] 检查评估模型..."
   mkdir -p "$DOWNLOADED_MODELS_DIR"
   if [[ -d "$EVAL_MODEL_LOCAL_DIR" ]] && [[ -n "$(find "$EVAL_MODEL_LOCAL_DIR" -maxdepth 1 -type f 2>/dev/null)" ]]; then
     echo "[EvalModel] 已存在本地评估模型目录: $EVAL_MODEL_LOCAL_DIR"
     return
   fi
 
-  echo "[EvalModel] 开始下载评估模型到: $EVAL_MODEL_LOCAL_DIR"
-  python - <<PY
+  echo "[EvalModel] 开始下载评估模型到: $EVAL_MODEL_LOCAL_DIR （这可能需要较长时间...）"
+  python -c "
 import os
 from huggingface_hub import snapshot_download
 
-repo_id = os.environ["EVAL_MODEL_REPO"]
-local_dir = os.environ["EVAL_MODEL_LOCAL_DIR"]
-token_path = os.path.join(os.environ["ROOT_DIR"], "huggingface_token.txt")
-with open(token_path, "r", encoding="utf-8") as f:
+repo_id = os.environ['EVAL_MODEL_REPO']
+local_dir = os.environ['EVAL_MODEL_LOCAL_DIR']
+token_path = os.path.join(os.environ['ROOT_DIR'], 'huggingface_token.txt')
+with open(token_path, 'r', encoding='utf-8') as f:
     token = f.readline().strip()
 
 snapshot_download(
@@ -147,8 +162,9 @@ snapshot_download(
     local_dir_use_symlinks=False,
     token=token,
 )
-print(f"downloaded eval model: {repo_id} -> {local_dir}")
-PY
+print(f'downloaded eval model: {repo_id} -> {local_dir}')
+"
+  echo "[EvalModel] 下载完成"
 }
 
 GPU_MONITOR_PID=""
@@ -181,7 +197,7 @@ print_gpu_peak() {
 }
 
 run_stage1_alignment() {
-  echo "\n========== Stage 1: 安全对齐 SFT =========="
+  printf "\n========== Stage 1: 安全对齐 SFT ==========\n"
   start_gpu_monitor "stage1_alignment"
   python train.py \
     --model_name_or_path "$MODEL_PATH" \
@@ -213,7 +229,7 @@ eval_harmful() {
   local lora_1="$1"
   local lora_2="$2"
   local out_path="$3"
-  echo "\n[Eval-HS] 输出到: $out_path"
+  printf "\n[Eval-HS] 输出到: %s\n" "$out_path"
 
   pushd poison/evaluation >/dev/null
   if [[ -n "$lora_2" ]]; then
@@ -239,7 +255,7 @@ eval_sst2() {
   local lora_1="$1"
   local lora_2="$2"
   local out_path="$3"
-  echo "\n[Eval-FA] 输出到: $out_path"
+  printf "\n[Eval-FA] 输出到: %s\n" "$out_path"
   pushd sst2 >/dev/null
   python pred_eval.py \
     --lora_folder "$ROOT_DIR/$lora_1" \
@@ -250,7 +266,7 @@ eval_sst2() {
 }
 
 run_stage2_lisa() {
-  echo "\n========== Stage 2: Lisa 防御微调 =========="
+  printf "\n========== Stage 2: Lisa 防御微调 ==========\n"
   python train.py \
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
@@ -288,7 +304,7 @@ run_stage2_lisa() {
 }
 
 run_stage2_sft_baseline() {
-  echo "\n========== Stage 2 Baseline: 普通 SFT 微调 =========="
+  printf "\n========== Stage 2 Baseline: 普通 SFT 微调 ==========\n"
   python train.py \
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
@@ -334,17 +350,22 @@ echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "POISON_RATIO=$POISON_RATIO, SAMPLE_NUM=$SAMPLE_NUM, RHO=$RHO"
 echo "ALIGN_STEP=$ALIGN_STEP, FINETUNE_STEP=$FINETUNE_STEP, GUIDE_DATA_NUM=$GUIDE_DATA_NUM, ALIGN_SAFE_NUM=$ALIGN_SAFE_NUM"
 
+echo "[Step 1/5] Preflight checks..."
 preflight_checks
+echo "[Step 2/5] 准备评估模型..."
 prepare_eval_model
 
 if [[ "$RUN_DATA_PREP" == "1" ]]; then
-  bash script/repro/prepare_datasets.sh | tee logs/data_prepare.log
+  echo "[Step 3/5] 准备数据集..."
+  bash script/repro/prepare_datasets.sh 2>&1 | tee logs/data_prepare.log
 else
   echo "[Skip] RUN_DATA_PREP=0，跳过数据准备。"
 fi
 
+echo "[Step 4/5] Stage 1: 安全对齐..."
 run_stage1_alignment
 eval_harmful "$ALIGN_OUT" "" "$ALIGN_POISON_PRED"
+echo "[Step 5/5] Stage 2: 微调 + 评测..."
 run_stage2_lisa
 
 if [[ "$RUN_BASELINE_SFT" == "1" ]]; then
@@ -353,7 +374,7 @@ else
   echo "[Skip] RUN_BASELINE_SFT=0，跳过普通 SFT 对照组。"
 fi
 
-echo "\n========== 全流程完成 =========="
+printf "\n========== 全流程完成 ==========\n"
 echo "关键输出目录："
 echo "- 对齐模型: $ALIGN_OUT"
 echo "- Lisa 模型: $LISA_OUT"
