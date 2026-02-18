@@ -38,7 +38,7 @@ GUIDE_DATA_NUM="${GUIDE_DATA_NUM:-2000}"
 # ===== 运行控制 =====
 RUN_BASELINE_SFT="${RUN_BASELINE_SFT:-1}"    # 1: 运行对照组 SFT；0: 跳过
 RUN_DATA_PREP="${RUN_DATA_PREP:-1}"          # 1: 自动准备数据；0: 跳过
-DETACH_RUN="${DETACH_RUN:-0}"                # 1: nohup 后台运行，断开终端后继续
+DETACH_RUN="${DETACH_RUN:-1}"                # 1: nohup 后台运行，断开终端后继续
 GPU_ID="${GPU_ID:-1}"
 
 # ===== 路径 =====
