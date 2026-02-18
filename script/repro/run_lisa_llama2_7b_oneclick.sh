@@ -41,7 +41,7 @@ GUIDE_DATA_NUM="${GUIDE_DATA_NUM:-2000}"
 RUN_BASELINE_SFT="${RUN_BASELINE_SFT:-1}"    # 1: 运行对照组 SFT；0: 跳过
 RUN_DATA_PREP="${RUN_DATA_PREP:-1}"          # 1: 自动准备数据；0: 跳过
 DETACH_RUN="${DETACH_RUN:-1}"                # 1: nohup 后台运行，断开终端后继续
-GPU_ID="${GPU_ID:-1}"
+GPU_ID="${GPU_ID:-1,2}"                     # 支持多卡，如 "0,1" 或单卡 "0"
 
 # ===== 路径 =====
 CACHE_DIR="${CACHE_DIR:-cache}"
@@ -202,7 +202,6 @@ run_stage1_alignment() {
   python train.py \
     --model_name_or_path "$MODEL_PATH" \
     --data_path PKU-Alignment/BeaverTails_safe \
-    --fp16 True \
     --output_dir "$ALIGN_OUT" \
     --num_train_epochs "$ALIGN_EPOCHS" \
     --per_device_train_batch_size "$ALIGN_BS" \
@@ -271,7 +270,6 @@ run_stage2_lisa() {
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
     --data_path PKU-Alignment/BeaverTails_dangerous \
-    --fp16 True \
     --output_dir "$LISA_OUT" \
     --num_train_epochs "$FINETUNE_EPOCHS" \
     --per_device_train_batch_size "$FINETUNE_BS" \
@@ -309,7 +307,6 @@ run_stage2_sft_baseline() {
     --model_name_or_path "$MODEL_PATH" \
     --lora_folder "$ALIGN_OUT" \
     --data_path PKU-Alignment/BeaverTails_dangerous \
-    --fp16 True \
     --output_dir "$SFT_OUT" \
     --num_train_epochs "$FINETUNE_EPOCHS" \
     --per_device_train_batch_size "$FINETUNE_BS" \

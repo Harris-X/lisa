@@ -24,7 +24,8 @@ output_folder = os.path.dirname(args.output_path)
 os.makedirs(output_folder, exist_ok=True)
 
 from datasets import load_dataset
-dataset =load_dataset("sst2")
+# 使用完整 Hub 路径，避免与项目根目录下的 sst2/ 文件夹冲突
+dataset =load_dataset("stanfordnlp/sst2")
 index=0
 input_data_lst = []
 for example in dataset["validation"]:
