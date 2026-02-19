@@ -9,6 +9,20 @@ export HF_HOME="${HF_HOME:-$ROOT_DIR/cache/hf}"
 export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME/hub}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 
+# 检查最终产物是否已存在
+ALL_READY=1
+for f in data/sst2.json data/agnews.json data/gsm8k.json; do
+  if [[ ! -f "$f" ]]; then
+    ALL_READY=0
+    break
+  fi
+done
+
+if [[ "$ALL_READY" == "1" ]]; then
+  echo "[跳过] 数据已就绪（data/sst2.json, data/agnews.json, data/gsm8k.json 均存在）"
+  exit 0
+fi
+
 echo "[1/3] 预拉取 HuggingFace 数据集缓存..."
 # 注意：sst2 必须用 "stanfordnlp/sst2" 而不是 "sst2"，
 #       因为项目根目录下有同名 sst2/ 文件夹，datasets 库会优先匹配本地目录导致报错。
@@ -35,17 +49,29 @@ PY
 echo "[2/3] 构建下游任务 json 数据..."
 mkdir -p data
 
-pushd sst2 >/dev/null
-python build_dataset.py
-popd >/dev/null
+if [[ -f data/sst2.json ]]; then
+  echo "  [跳过] data/sst2.json 已存在"
+else
+  pushd sst2 >/dev/null
+  python build_dataset.py
+  popd >/dev/null
+fi
 
-pushd agnews >/dev/null
-python build_dataset.py
-popd >/dev/null
+if [[ -f data/agnews.json ]]; then
+  echo "  [跳过] data/agnews.json 已存在"
+else
+  pushd agnews >/dev/null
+  python build_dataset.py
+  popd >/dev/null
+fi
 
-pushd gsm8k >/dev/null
-python build_dataset.py
-popd >/dev/null
+if [[ -f data/gsm8k.json ]]; then
+  echo "  [跳过] data/gsm8k.json 已存在"
+else
+  pushd gsm8k >/dev/null
+  python build_dataset.py
+  popd >/dev/null
+fi
 
 echo "[3/3] 数据准备完成。"
 echo "- 生成文件: data/sst2.json, data/agnews.json, data/gsm8k.json"

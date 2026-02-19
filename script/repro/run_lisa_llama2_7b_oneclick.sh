@@ -353,8 +353,12 @@ echo "[Step 2/5] 准备评估模型..."
 prepare_eval_model
 
 if [[ "$RUN_DATA_PREP" == "1" ]]; then
-  echo "[Step 3/5] 准备数据集..."
-  bash script/repro/prepare_datasets.sh 2>&1 | tee logs/data_prepare.log
+  if [[ -f data/sst2.json && -f data/agnews.json && -f data/gsm8k.json ]]; then
+    echo "[Skip] 数据已就绪（data/sst2.json, data/agnews.json, data/gsm8k.json 均存在），跳过数据准备。"
+  else
+    echo "[Step 3/5] 准备数据集..."
+    bash script/repro/prepare_datasets.sh 2>&1 | tee logs/data_prepare.log
+  fi
 else
   echo "[Skip] RUN_DATA_PREP=0，跳过数据准备。"
 fi
