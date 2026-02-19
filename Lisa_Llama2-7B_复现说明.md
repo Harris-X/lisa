@@ -496,3 +496,79 @@ FileNotFoundError: No (supported) data files or dataset script found in sst2
 - `sst2/build_dataset.py`：`load_dataset("sst2")` → `load_dataset("stanfordnlp/sst2")`
 - `agnews/build_dataset.py`：`load_dataset("ag_news")` → `load_dataset("fancyzhx/ag_news")`
 - `gsm8k/build_dataset.py`：`load_dataset("gsm8k", "main")` → `load_dataset("openai/gsm8k", "main")`
+
+### 9.6 Stage 1 有害分数（HS）异常偏高（34% vs 预期 2%）
+
+**现象**：Stage 1 安全对齐后评测 HS 约 34%，而官方论文中纯对齐后 HS 应 ≤ 5%。
+
+**根因分析**：与官方仓库 [git-disl/Lisa](https://github.com/git-disl/Lisa) 逐文件比对后，发现本地代码在 Stage 1 阶段的**有效训练量仅为官方的 1/15**，由以下多个差异叠加造成。
+
+#### 差异一览表
+
+| # | 文件 | 位置 | 官方代码 | 本地代码 | 影响程度 | 影响说明 |
+|---|------|------|---------|---------|---------|---------|
+| **1** | `train.py` | `make_supervised_data_module()` | **硬编码** `guide_data_num=10000` | 改为 `getattr(data_args, "guide_data_num", 10000)` → 传入 2000 | **致命** | Stage 1 安全对齐训练样本从 10000 → 2000（5× 缩减） |
+| **2** | oneclick 脚本 | `ALIGN_EPOCHS` | 30（`SFT.sh`） | 20（T-Vaccine 参数） | **严重** | 训练轮数减少 1/3 |
+| **3** | oneclick 脚本 | `ALIGN_BS` | 5（`SFT.sh`） | 10（T-Vaccine 参数） | **严重** | 每轮步数减半（梯度更新次数 ÷ 2） |
+| **4** | oneclick 脚本 | Stage 1 命令 | `--bf16 True` | **缺失** | **重要** | 训练以纯 float32 进行，数值行为与官方不一致 |
+| **5** | `train.py` | `AutoModelForCausalLM.from_pretrained` | `torch_dtype=torch.float16` | `torch_dtype=torch.float32` | **中等** | 模型加载精度不同，配合 bf16 缺失导致全 float32 训练 |
+| **6** | oneclick 脚本 | Stage 1 命令 | `--tf32 True` | `--tf32 False` | **轻微** | TF32 加速被禁用，训练更慢（不影响结果） |
+
+#### 训练步数量化对比
+
+```
+官方：10000 样本 ÷ batch_size 5 × 30 epochs = 60,000 步
+本地：2000 样本 ÷ batch_size 10 × 20 epochs = 4,000 步
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+差距：15 倍（4000 / 60000 = 6.7%）
+```
+
+#### 差异详解
+
+**差异 #1（致命）：`make_supervised_data_module` 中 `guide_data_num` 被改为传参**
+
+官方 `train.py` 第 238 行（[原始代码](https://github.com/git-disl/Lisa/blob/main/train.py#L238)）：
+```python
+# 官方：硬编码 10000，无视命令行 --guide_data_num 参数
+train_dataset = SupervisedDataset(
+    ..., guide_data_num=10000)
+```
+
+本地修改后：
+```python
+# 本地：使用命令行参数值（2000）
+guide_data_num = getattr(data_args, "guide_data_num", 10000)
+train_dataset = SupervisedDataset(
+    ..., guide_data_num=guide_data_num)
+```
+
+这个修改看似合理（让参数可配置），但官方刻意硬编码 10000 是有原因的——Stage 1 安全对齐需要足够多的安全样本才能建立可靠的安全基线。`--guide_data_num` 参数在官方设计中仅用于 Stage 2 Lisa 的引导数据量（`alignment_dataset` 的大小），而不应影响 Stage 1 训练数据量。
+
+**差异 #2-3（严重）：训练超参数采用了 T-Vaccine 数值**
+
+本地脚本的设计初衷是"同名参数优先采用 T-Vaccine"，其中 epochs=20、batch_size=10 来源于 T-Vaccine 的配置。但这两个参数与 #1 叠加后，导致 Stage 1 训练步数仅 4000（官方的 1/15）。
+
+**差异 #4-5（重要）：精度配置不一致**
+
+官方流程：`torch.float16 加载 → --bf16 True 训练`（bfloat16 混合精度）
+本地流程：`torch.float32 加载 → 无 bf16 标志`（纯 float32 训练）
+
+虽然 float32 理论上精度更高，但与官方训练范式不同，且可能在 LoRA 权重保存/加载时与 pred.py（使用 `torch.float16`）之间产生精度不一致。
+
+#### 修复方案
+
+**方案 A（推荐）：仅修复致命项，保留 T-Vaccine 超参**
+
+1. `train.py` 的 `make_supervised_data_module` 恢复官方硬编码或引入独立参数
+2. oneclick 脚本 Stage 1 补上 `--bf16 True`
+3. 预期 Stage 1 步数：10000 / 10 × 20 = **20,000 步**（官方的 1/3，但足够建立安全基线）
+
+**方案 B（完全对齐官方）：**
+
+1. `train.py` 恢复 `guide_data_num=10000` 硬编码  
+2. `ALIGN_EPOCHS=30`，`ALIGN_BS=5`
+3. `train.py` 恢复 `torch_dtype=torch.float16`
+4. Stage 1 补上 `--bf16 True`，`--tf32 True`
+5. 预期 Stage 1 步数：10000 / 5 × 30 = **60,000 步**（与官方完全一致）
+
+**已采用修复：方案 A**（在下方代码修改中实施）。
