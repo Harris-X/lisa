@@ -287,7 +287,7 @@ run_stage2_lisa() {
     --eval_steps 2000 \
     --cache_dir "$CACHE_DIR" \
     --optimizer lisa \
-    --evaluation_strategy steps \
+    --evaluation_strategy no \
     --sample_num "$SAMPLE_NUM" \
     --poison_ratio "$POISON_RATIO" \
     --label_smoothing_factor 0 \
@@ -324,7 +324,7 @@ run_stage2_sft_baseline() {
     --eval_steps 1000 \
     --cache_dir "$CACHE_DIR" \
     --optimizer normal \
-    --evaluation_strategy steps \
+    --evaluation_strategy no \
     --sample_num "$SAMPLE_NUM" \
     --poison_ratio "$POISON_RATIO" \
     --label_smoothing_factor 0 \
@@ -404,7 +404,7 @@ else
     --eval_steps 2000 \
     --cache_dir "$CACHE_DIR" \
     --optimizer lisa \
-    --evaluation_strategy steps \
+    --evaluation_strategy no \
     --sample_num "$SAMPLE_NUM" \
     --poison_ratio "$POISON_RATIO" \
     --label_smoothing_factor 0 \
@@ -453,7 +453,7 @@ if [[ "$RUN_BASELINE_SFT" == "1" ]]; then
       --eval_steps 1000 \
       --cache_dir "$CACHE_DIR" \
       --optimizer normal \
-      --evaluation_strategy steps \
+      --evaluation_strategy no \
       --sample_num "$SAMPLE_NUM" \
       --poison_ratio "$POISON_RATIO" \
       --label_smoothing_factor 0 \
