@@ -107,18 +107,18 @@ class LisaTrainer(Trainer):
         
     
     def switch_model(self):
-        sum_drift =0
+        sum_drift = 0.0
         if self.status == "alignment":
             for name, param in self.model.named_parameters():
                 if param.requires_grad:
                     self.finetune_weights[name] = param.data.detach().clone()
-                    sum_drift += torch.norm(self.finetune_weights[name] - self.alignment_weights[name])**2
+                    sum_drift += torch.norm(self.finetune_weights[name] - self.alignment_weights[name]).item()**2
             print("finetuning drift to consensus{}".format(sum_drift))
         else:
             for name, param in self.model.named_parameters():
                 if param.requires_grad:
                     self.alignment_weights[name] = param.data.detach().clone()
-                    sum_drift += torch.norm(self.finetune_weights[name] - self.alignment_weights[name])**2
+                    sum_drift += torch.norm(self.finetune_weights[name] - self.alignment_weights[name]).item()**2
             print("alignment drift to consensus{}".format(sum_drift))
         
         
@@ -183,14 +183,16 @@ class LisaTrainer(Trainer):
                 if self.steps>0.1* len(self.get_train_dataloader()) * self.args.num_train_epochs:
                     for name, param in model.named_parameters():
                         if param.requires_grad and self.args.rho>0:
-                            loss += self.args.rho/2* torch.norm( param- self.finetune_weights[name])**2
+                            proximal = self.args.rho/2* torch.norm( param- self.finetune_weights[name].to(param.device))**2
+                            loss = loss + proximal.to(loss.device)
             else:
                 if self.steps>0.1* len(self.get_train_dataloader()) * self.args.num_train_epochs:
                     for name, param in model.named_parameters():
                         # we observe that for Gsm8k, proximal term will hurt convergence. Don't do proximal for the first few rounds.
                         if param.requires_grad and self.args.rho>0:
                             # loss += (- torch.sum(self.gamma[name] *  param )) + self.args.rho/2* torch.norm( param- self.alignment_weights[name])**2
-                            loss +=  self.args.rho/2* torch.norm( param- self.alignment_weights[name])**2
+                            proximal = self.args.rho/2* torch.norm( param- self.alignment_weights[name].to(param.device))**2
+                            loss = loss + proximal.to(loss.device)
                 # print("finetune_loss: {}".format(loss.item()))
             if self.do_grad_scaling:
                 self.scaler.scale(loss).backward()

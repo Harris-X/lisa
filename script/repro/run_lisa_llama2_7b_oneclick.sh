@@ -209,8 +209,8 @@ run_stage1_alignment() {
     --gradient_accumulation_steps 1 \
     --evaluation_strategy no \
     --save_strategy steps \
-    --save_steps 100000 \
-    --save_total_limit 0 \
+    --save_steps 2000 \
+    --save_total_limit 2 \
     --learning_rate "$ALIGN_LR" \
     --weight_decay "$ALIGN_WEIGHT_DECAY" \
     --warmup_ratio 0.1 \
@@ -276,8 +276,8 @@ run_stage2_lisa() {
     --per_device_eval_batch_size "$FINETUNE_BS" \
     --gradient_accumulation_steps 1 \
     --save_strategy steps \
-    --save_steps 100000 \
-    --save_total_limit 0 \
+    --save_steps 500 \
+    --save_total_limit 3 \
     --learning_rate "$FINETUNE_LR" \
     --weight_decay "$FINETUNE_WEIGHT_DECAY" \
     --warmup_ratio 0.1 \
@@ -313,8 +313,8 @@ run_stage2_sft_baseline() {
     --per_device_eval_batch_size "$FINETUNE_BS" \
     --gradient_accumulation_steps 1 \
     --save_strategy steps \
-    --save_steps 100000 \
-    --save_total_limit 0 \
+    --save_steps 500 \
+    --save_total_limit 3 \
     --learning_rate "$FINETUNE_LR" \
     --weight_decay "$FINETUNE_WEIGHT_DECAY" \
     --warmup_ratio 0.1 \
@@ -359,14 +359,118 @@ else
   echo "[Skip] RUN_DATA_PREP=0，跳过数据准备。"
 fi
 
+# ===== 阶段跳过逻辑：检测已有输出目录/文件，跳过已完成的步骤 =====
 echo "[Step 4/5] Stage 1: 安全对齐..."
-run_stage1_alignment
-eval_harmful "$ALIGN_OUT" "" "$ALIGN_POISON_PRED"
+if [[ -f "$ALIGN_OUT/adapter_config.json" ]]; then
+  echo "[Skip] Stage 1 已完成，检测到 $ALIGN_OUT/adapter_config.json"
+else
+  run_stage1_alignment
+fi
+
+if [[ -f "${ALIGN_POISON_PRED}_sentiment_eval.json" ]]; then
+  echo "[Skip] Stage 1 有害评测已完成，检测到 ${ALIGN_POISON_PRED}_sentiment_eval.json"
+else
+  eval_harmful "$ALIGN_OUT" "" "$ALIGN_POISON_PRED"
+fi
+
 echo "[Step 5/5] Stage 2: 微调 + 评测..."
-run_stage2_lisa
+if [[ -f "$LISA_OUT/adapter_config.json" ]]; then
+  echo "[Skip] Lisa 微调已完成，检测到 $LISA_OUT/adapter_config.json"
+else
+  # 仅运行训练，不含评测
+  printf "\n========== Stage 2: Lisa 防御微调 ==========\n"
+  python train.py \
+    --model_name_or_path "$MODEL_PATH" \
+    --lora_folder "$ALIGN_OUT" \
+    --data_path PKU-Alignment/BeaverTails_dangerous \
+    --output_dir "$LISA_OUT" \
+    --num_train_epochs "$FINETUNE_EPOCHS" \
+    --per_device_train_batch_size "$FINETUNE_BS" \
+    --per_device_eval_batch_size "$FINETUNE_BS" \
+    --gradient_accumulation_steps 1 \
+    --save_strategy steps \
+    --save_steps 500 \
+    --save_total_limit 3 \
+    --learning_rate "$FINETUNE_LR" \
+    --weight_decay "$FINETUNE_WEIGHT_DECAY" \
+    --warmup_ratio 0.1 \
+    --lr_scheduler_type constant \
+    --logging_steps 10 \
+    --tf32 False \
+    --eval_steps 2000 \
+    --cache_dir "$CACHE_DIR" \
+    --optimizer lisa \
+    --evaluation_strategy steps \
+    --sample_num "$SAMPLE_NUM" \
+    --poison_ratio "$POISON_RATIO" \
+    --label_smoothing_factor 0 \
+    --benign_dataset data/sst2.json \
+    --rho "$RHO" \
+    --alignment_step "$ALIGN_STEP" \
+    --finetune_step "$FINETUNE_STEP" \
+    --guide_data_num "$GUIDE_DATA_NUM" | tee "logs/stage2_lisa.log"
+fi
+
+if [[ -f "${LISA_POISON_PRED}_sentiment_eval.json" ]]; then
+  echo "[Skip] Lisa 有害评测已完成，检测到 ${LISA_POISON_PRED}_sentiment_eval.json"
+else
+  eval_harmful "$ALIGN_OUT" "$LISA_OUT" "$LISA_POISON_PRED"
+fi
+
+if [[ -f "$LISA_SST2_PRED" ]]; then
+  echo "[Skip] Lisa SST2 评测已完成，检测到 $LISA_SST2_PRED"
+else
+  eval_sst2 "$ALIGN_OUT" "$LISA_OUT" "$LISA_SST2_PRED"
+fi
 
 if [[ "$RUN_BASELINE_SFT" == "1" ]]; then
-  run_stage2_sft_baseline
+  if [[ -f "$SFT_OUT/adapter_config.json" ]]; then
+    echo "[Skip] SFT baseline 已完成，检测到 $SFT_OUT/adapter_config.json"
+  else
+    printf "\n========== Stage 2 Baseline: 普通 SFT 微调 ==========\n"
+    python train.py \
+      --model_name_or_path "$MODEL_PATH" \
+      --lora_folder "$ALIGN_OUT" \
+      --data_path PKU-Alignment/BeaverTails_dangerous \
+      --output_dir "$SFT_OUT" \
+      --num_train_epochs "$FINETUNE_EPOCHS" \
+      --per_device_train_batch_size "$FINETUNE_BS" \
+      --per_device_eval_batch_size "$FINETUNE_BS" \
+      --gradient_accumulation_steps 1 \
+      --save_strategy steps \
+      --save_steps 500 \
+      --save_total_limit 3 \
+      --learning_rate "$FINETUNE_LR" \
+      --weight_decay "$FINETUNE_WEIGHT_DECAY" \
+      --warmup_ratio 0.1 \
+      --lr_scheduler_type constant \
+      --logging_steps 10 \
+      --tf32 False \
+      --eval_steps 1000 \
+      --cache_dir "$CACHE_DIR" \
+      --optimizer normal \
+      --evaluation_strategy steps \
+      --sample_num "$SAMPLE_NUM" \
+      --poison_ratio "$POISON_RATIO" \
+      --label_smoothing_factor 0 \
+      --benign_dataset data/sst2.json \
+      --rho 0 \
+      --alignment_step "$ALIGN_STEP" \
+      --finetune_step "$FINETUNE_STEP" \
+      --guide_data_num 0 | tee "logs/stage2_sft_baseline.log"
+  fi
+
+  if [[ -f "${SFT_POISON_PRED}_sentiment_eval.json" ]]; then
+    echo "[Skip] SFT 有害评测已完成"
+  else
+    eval_harmful "$ALIGN_OUT" "$SFT_OUT" "$SFT_POISON_PRED"
+  fi
+
+  if [[ -f "$SFT_SST2_PRED" ]]; then
+    echo "[Skip] SFT SST2 评测已完成"
+  else
+    eval_sst2 "$ALIGN_OUT" "$SFT_OUT" "$SFT_SST2_PRED"
+  fi
 else
   echo "[Skip] RUN_BASELINE_SFT=0，跳过普通 SFT 对照组。"
 fi
